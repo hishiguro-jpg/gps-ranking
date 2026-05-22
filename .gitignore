@@ -1,0 +1,23 @@
+# 認証情報（絶対にGitに上げない）
+.streamlit/secrets.toml
+
+# データベース（選手個人情報を含む）
+data/history.db
+data/
+
+# Pythonキャッシュ
+__pycache__/
+*.pyc
+*.pyo
+.python-version
+
+# 実データCSV（個人情報を含む可能性）
+*.csv
+!sample_data.csv
+
+# macOS
+.DS_Store
+
+# 一時ファイル
+/tmp/
+*.tmp
