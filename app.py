@@ -16,12 +16,15 @@ from fpdf import FPDF
 
 # ── フォント初期化（Mac/Linux 両対応） ────────────────────────────────────────
 def _find_jp_font():
+    # リポジトリ同梱フォントを最優先
+    bundled = Path(__file__).parent / "fonts" / "NotoSansJP-Regular.ttf"
+    if bundled.exists():
+        return str(bundled)
     candidates = [
         "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",                    # macOS
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",             # Ubuntu noto-cjk
         "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
     ]
     for p in candidates:
         if Path(p).exists():
