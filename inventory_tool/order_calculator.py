@@ -100,8 +100,15 @@ def load_cost_master(path):
     df.columns = [c.strip() for c in df.columns]
     df["product"] = df["product"].astype(str).str.strip()
     df = df.set_index("product")
-    for col in ["unit_cost", "selling_price", "fixed_cost", "lead_time_days", "current_stock", "on_order_qty"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+    numeric_cols = [
+        "unit_cost", "selling_price", "fixed_cost", "lead_time_days",
+        "current_stock", "on_order_qty", "units_per_pallet",
+    ]
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        else:
+            df[col] = 0
     return df
 
 
@@ -117,7 +124,10 @@ def daily_series(sales_df, product, window_days):
     return daily
 
 
-def analyze_product(product, sales_df, cost_row, window_days, service_level, target_days, today):
+def analyze_product(
+    product, sales_df, cost_row, window_days, service_level, target_days, today,
+    pallets_per_truck=16, truck_cost=0.0, holding_cost_per_unit=0.0,
+):
     series_all = daily_series(sales_df, product, window_days=None)
     series_window = daily_series(sales_df, product, window_days=window_days)
 
@@ -142,14 +152,31 @@ def analyze_product(product, sales_df, cost_row, window_days, service_level, tar
     on_order_qty = float(cost_row["on_order_qty"])
     unit_cost = float(cost_row["unit_cost"])
     selling_price = float(cost_row["selling_price"])
-    fixed_cost = float(cost_row["fixed_cost"])
+    units_per_pallet = float(cost_row["units_per_pallet"])
 
     z = nearest_z_score(service_level)
     safety_stock = z * std_daily * math.sqrt(max(lead_time_days, 0))
     reorder_point = avg_daily * lead_time_days + safety_stock
 
     order_up_to = avg_daily * (lead_time_days + target_days) + safety_stock
-    recommended_order_qty = max(0.0, order_up_to - current_stock - on_order_qty)
+    raw_order_qty = max(0.0, order_up_to - current_stock - on_order_qty)
+
+    if units_per_pallet > 0 and raw_order_qty > 0:
+        pallets_needed = math.ceil(raw_order_qty / units_per_pallet)
+        recommended_order_qty = pallets_needed * units_per_pallet
+    else:
+        pallets_needed = 0
+        recommended_order_qty = raw_order_qty
+
+    if units_per_pallet > 0 and truck_cost > 0 and pallets_needed > 0:
+        trucks_needed = math.ceil(pallets_needed / pallets_per_truck)
+        logistics_cost = trucks_needed * truck_cost
+    else:
+        trucks_needed = 0
+        logistics_cost = 0.0
+
+    holding_cost = current_stock * holding_cost_per_unit
+    fixed_cost = float(cost_row["fixed_cost"]) + holding_cost + logistics_cost
 
     days_to_stockout = current_stock / avg_daily if avg_daily > 0 else float("inf")
     stockout_date = today + timedelta(days=days_to_stockout) if math.isfinite(days_to_stockout) else None
@@ -181,6 +208,9 @@ def analyze_product(product, sales_df, cost_row, window_days, service_level, tar
         "safety_stock": safety_stock,
         "reorder_point": reorder_point,
         "recommended_order_qty": recommended_order_qty,
+        "units_per_pallet": units_per_pallet,
+        "pallets_needed": pallets_needed,
+        "trucks_needed": trucks_needed,
         "current_stock": current_stock,
         "on_order_qty": on_order_qty,
         "lead_time_days": lead_time_days,
@@ -247,7 +277,15 @@ def render_report(results, service_level, target_days, window_days):
         lines.append(f"- 安全在庫: {r['safety_stock']:.1f} 個")
         lines.append(f"- 発注点(在庫がこの数を下回ったら発注): {r['reorder_point']:.1f} 個")
         lines.append(f"- 現在庫: {r['current_stock']:.0f} 個 / 発注済(未入荷): {r['on_order_qty']:.0f} 個")
-        lines.append(f"- **推奨発注量: {r['recommended_order_qty']:.0f} 個**")
+        if r["units_per_pallet"] > 0 and r["recommended_order_qty"] > 0:
+            lines.append(
+                f"- **推奨発注量: {r['recommended_order_qty']:.0f} 個**"
+                f"（{r['pallets_needed']:.0f}パレット分、{r['units_per_pallet']:.0f}個/パレットで切り上げ）"
+            )
+            if r["trucks_needed"] > 1:
+                lines.append(f"  - トラック{r['trucks_needed']:.0f}台分の搬入が必要です")
+        else:
+            lines.append(f"- **推奨発注量: {r['recommended_order_qty']:.0f} 個**")
         lines.append("")
         lines.append("### 在庫消化の見込み")
         lines.append(f"- 現在庫のみで消化しきるまで: {fmt_days(r['days_to_stockout'])}（{fmt_date(r['stockout_date'])}頃）")
@@ -308,6 +346,17 @@ def main():
     parser.add_argument(
         "--chart-dir", default=str(REPO_ROOT / "inventory_tool" / "output"), help="グラフ画像の保存先ディレクトリ"
     )
+    parser.add_argument(
+        "--pallets-per-truck", type=int, default=16, help="トラック1台に積めるパレット数"
+    )
+    parser.add_argument(
+        "--truck-cost", type=float, default=0.0,
+        help="トラック1台あたりの搬入費用(円)。0の場合は発注ロットのトラック台数を考慮しない",
+    )
+    parser.add_argument(
+        "--holding-cost-per-unit", type=float, default=0.0,
+        help="現在庫1個あたりの保管費用(円)。固定費に自動加算される",
+    )
     args = parser.parse_args()
 
     sales_df = load_sales_history(args.sales)
@@ -329,6 +378,9 @@ def main():
             service_level=args.service_level,
             target_days=args.target_days,
             today=today,
+            pallets_per_truck=args.pallets_per_truck,
+            truck_cost=args.truck_cost,
+            holding_cost_per_unit=args.holding_cost_per_unit,
         )
         results.append(result)
         chart_path = save_chart(result, Path(args.chart_dir))
