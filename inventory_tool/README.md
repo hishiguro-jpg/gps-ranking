@@ -61,6 +61,11 @@ python inventory_tool/estimate_selling_price.py \
 
 `--coordination-rate` は比率が変わった場合に指定し直す（既定値0.13 = 13%）。
 
+**ふるさと納税の返礼品コーディネート業務のように「原価＝売価（商品自体の取引は損益ゼロ）で、
+寄附金額の一定率を別途コーディネート報酬として受け取る」business modelの場合**、
+`cost_master.csv`の`selling_price`には「原価 ＋ `estimate_selling_price.py`が出す1個あたり報酬額」を
+入力する（`unit_cost`と`selling_price`の差＝報酬額になるようにする）。
+
 実行すると、標準出力とMarkdownレポートに以下が出力されます。
 
 - 直近の平均消化ペースと傾向（上昇/下降/横ばい）
