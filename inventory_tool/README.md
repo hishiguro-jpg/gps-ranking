@@ -7,7 +7,9 @@
 
 ```
 inventory_tool/
-├── order_calculator.py       ← メインスクリプト（発注量・損益分岐点等を算出）
+├── streamlit_app.py          ← 画面版（ブラウザで操作、初めての方はこちら）
+├── start.sh                  ← 画面版のダブルクリック起動スクリプト
+├── order_calculator.py       ← コマンドライン版メインスクリプト（発注量・損益分岐点等を算出）
 ├── raw_data_import.py        ← 受発注管理システムの生データをsales_history.csv形式に変換
 ├── estimate_selling_price.py ← 寄附金額とコーディネート報酬率から売価を推定
 ├── templates/                ← 入力CSVのフォーマット見本
@@ -16,7 +18,19 @@ inventory_tool/
 └── output/                   ← グラフの出力先（自動生成、Git管理外）
 ```
 
-## 使い方
+## 使い方（画面版・おすすめ）
+
+1. 初回のみ: `pip install -r requirements.txt`
+2. `inventory_tool/start.sh` をダブルクリック（またはターミナルで `bash inventory_tool/start.sh`）
+3. ブラウザで `http://localhost:8502` を開く
+4. 受発注生データCSVをアップロード → 商品ごとにコスト・在庫情報を入力 → 「分析を実行」
+
+画面上でパラメータ（サービス率・報酬率・トラック代など）を変えるとすぐに再計算されるので、
+数値を動かしながら確認したい場合はこちらが早い。
+
+## 使い方（コマンドライン版）
+
+自動化・定期実行したい場合や、大量データをスクリプトで処理したい場合はこちら。
 
 ### 1. 販売実績データがすでにCSVで整っている場合
 

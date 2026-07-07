@@ -19,6 +19,7 @@
 """
 
 import argparse
+import io
 
 import pandas as pd
 
@@ -41,33 +42,42 @@ def classify_product(raw_name):
     return None
 
 
-def read_csv_any_encoding(path):
+def read_csv_any_encoding(source):
+    """ファイルパスまたはファイルライクオブジェクト(Streamlitのアップロードファイル等)を読む
+
+    エンコーディングを1つずつ試すため、都度先頭から読み直せるようバイト列に
+    一度だけ読み込んでからパースする(ファイルライクオブジェクトはstream位置が
+    残るため、単純に複数回pd.read_csv(source, ...)すると2回目以降が壊れる)。
+    """
+    if hasattr(source, "read"):
+        data = source.read()
+    else:
+        with open(source, "rb") as f:
+            data = f.read()
+
     last_error = None
     for enc in CSV_ENCODINGS:
         try:
-            return pd.read_csv(path, encoding=enc)
+            return pd.read_csv(io.BytesIO(data), encoding=enc)
         except Exception as e:
             last_error = e
             continue
-    raise ValueError(f"文字コードを認識できませんでした: {path} ({last_error})")
+    raise ValueError(f"文字コードを認識できませんでした ({last_error})")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="BOSS生データをsales_history.csv形式に変換する")
-    parser.add_argument("--input", required=True, help="受発注管理システムからエクスポートした生データCSV")
-    parser.add_argument(
-        "--date-column", choices=["kifu", "shukka"], required=True,
-        help="集計基準の日付: kifu=寄附日(需要の発生タイミング) / shukka=出荷日(実際の在庫消費タイミング)",
-    )
-    parser.add_argument("--output", required=True, help="出力するsales_history.csvのパス")
-    args = parser.parse_args()
+def build_sales_history(raw_df, date_column_key):
+    """生データDataFrameを商品×日付で集計したsales_history形式のDataFrameに変換する
 
-    df = read_csv_any_encoding(args.input)
+    戻り値: (daily_df, stats) のタプル。
+    daily_df は date, product, quantity 列を持つ(order_calculator.pyの入力形式)。
+    stats は 入力件数/対象外件数/日付不正件数/商品別件数 を含む辞書。
+    """
+    df = raw_df.copy()
     df.columns = [c.strip() for c in df.columns]
 
-    date_col = DATE_COLUMNS[args.date_column]
+    date_col = DATE_COLUMNS[date_column_key]
     if date_col not in df.columns:
-        raise SystemExit(f"列が見つかりません: {date_col}（列一覧: {list(df.columns)}）")
+        raise ValueError(f"列が見つかりません: {date_col}（列一覧: {list(df.columns)}）")
 
     df["product"] = df["商品名"].map(classify_product)
     matched = df[df["product"].notna()].copy()
@@ -82,17 +92,40 @@ def main():
 
     daily = matched.groupby(["date", "product"]).size().reset_index(name="quantity")
     daily = daily.sort_values(["product", "date"])
-    daily["date"] = daily["date"].dt.strftime("%Y-%m-%d")
+    daily["date"] = pd.to_datetime(daily["date"])
 
-    daily.to_csv(args.output, index=False, encoding="utf-8-sig")
+    stats = {
+        "input_count": len(df),
+        "unmatched_count": unmatched_count,
+        "invalid_date_count": invalid_date_count,
+        "product_counts": matched["product"].value_counts(),
+    }
+    return daily, stats
 
-    print(f"入力件数: {len(df)}")
-    print(f"対象商品に一致せず除外: {unmatched_count}件")
-    if invalid_date_count:
-        print(f"日付が空/不正のため除外: {invalid_date_count}件")
+
+def main():
+    parser = argparse.ArgumentParser(description="受発注生データをsales_history.csv形式に変換する")
+    parser.add_argument("--input", required=True, help="受発注管理システムからエクスポートした生データCSV")
+    parser.add_argument(
+        "--date-column", choices=["kifu", "shukka"], required=True,
+        help="集計基準の日付: kifu=寄附日(需要の発生タイミング) / shukka=出荷日(実際の在庫消費タイミング)",
+    )
+    parser.add_argument("--output", required=True, help="出力するsales_history.csvのパス")
+    args = parser.parse_args()
+
+    raw_df = read_csv_any_encoding(args.input)
+    daily, stats = build_sales_history(raw_df, args.date_column)
+    daily_out = daily.copy()
+    daily_out["date"] = daily_out["date"].dt.strftime("%Y-%m-%d")
+    daily_out.to_csv(args.output, index=False, encoding="utf-8-sig")
+
+    print(f"入力件数: {stats['input_count']}")
+    print(f"対象商品に一致せず除外: {stats['unmatched_count']}件")
+    if stats["invalid_date_count"]:
+        print(f"日付が空/不正のため除外: {stats['invalid_date_count']}件")
     print("\n分類結果(件数内訳):")
-    print(matched["product"].value_counts().to_string())
-    print(f"\n[出力] {args.output} ({len(daily)}行)")
+    print(stats["product_counts"].to_string())
+    print(f"\n[出力] {args.output} ({len(daily_out)}行)")
 
 
 if __name__ == "__main__":

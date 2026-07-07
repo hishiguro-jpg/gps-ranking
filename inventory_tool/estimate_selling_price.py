@@ -22,6 +22,27 @@ import pandas as pd
 from raw_data_import import classify_product, read_csv_any_encoding
 
 
+def estimate_per_unit_revenue(raw_df, coordination_rate):
+    """受発注生データ(DataFrame)から商品ごとの1個あたり推定売価を返す
+
+    戻り値はproductをindexにしたDataFrame(件数, 平均寄附金額_按分後, 推定売価_1個あたり)。
+    """
+    df = raw_df.copy()
+    df["product"] = df["商品名"].map(classify_product)
+    matched = df[df["product"].notna()].copy()
+
+    matched["寄附金額"] = pd.to_numeric(matched["寄附金額"], errors="coerce").fillna(0)
+    installment_counts = matched.groupby("寄附番号")["寄附番号"].transform("count")
+    matched["per_unit_kifu_gaku"] = matched["寄附金額"] / installment_counts
+    matched["per_unit_revenue"] = matched["per_unit_kifu_gaku"] * coordination_rate
+
+    return matched.groupby("product").agg(
+        件数=("per_unit_revenue", "size"),
+        平均寄附金額_按分後=("per_unit_kifu_gaku", "mean"),
+        推定売価_1個あたり=("per_unit_revenue", "mean"),
+    ).round(0)
+
+
 def main():
     parser = argparse.ArgumentParser(description="コーディネート報酬率から1個あたりの売価を推定する")
     parser.add_argument("--input", required=True, help="受発注生データCSV")
@@ -34,19 +55,7 @@ def main():
 
     df = read_csv_any_encoding(args.input)
     df.columns = [c.strip() for c in df.columns]
-    df["product"] = df["商品名"].map(classify_product)
-    matched = df[df["product"].notna()].copy()
-
-    matched["寄附金額"] = pd.to_numeric(matched["寄附金額"], errors="coerce").fillna(0)
-    installment_counts = matched.groupby("寄附番号")["寄附番号"].transform("count")
-    matched["per_unit_kifu_gaku"] = matched["寄附金額"] / installment_counts
-    matched["per_unit_revenue"] = matched["per_unit_kifu_gaku"] * args.coordination_rate
-
-    summary = matched.groupby("product").agg(
-        件数=("per_unit_revenue", "size"),
-        平均寄附金額_按分後=("per_unit_kifu_gaku", "mean"),
-        推定売価_1個あたり=("per_unit_revenue", "mean"),
-    ).round(0)
+    summary = estimate_per_unit_revenue(df, args.coordination_rate)
 
     print(f"コーディネート報酬率: {args.coordination_rate*100:.1f}%")
     print(summary.to_string())

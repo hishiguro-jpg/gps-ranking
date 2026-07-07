@@ -30,6 +30,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 
+from raw_data_import import read_csv_any_encoding
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -66,19 +68,6 @@ Z_SCORE_TABLE = {
     0.975: 1.96,
     0.99: 2.33,
 }
-
-CSV_ENCODINGS = ["utf-8-sig", "utf-8", "shift_jis", "cp932"]
-
-
-def read_csv_any_encoding(path):
-    last_error = None
-    for enc in CSV_ENCODINGS:
-        try:
-            return pd.read_csv(path, encoding=enc)
-        except Exception as e:
-            last_error = e
-            continue
-    raise ValueError(f"文字コードを認識できませんでした: {path} ({last_error})")
 
 
 def nearest_z_score(service_level):
@@ -310,11 +299,10 @@ def render_report(results, service_level, target_days, window_days):
     return "\n".join(lines)
 
 
-def save_chart(result, output_dir):
+def build_chart(result):
     series = result["series_all"]
     if series.empty:
         return None
-    output_dir.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.plot(series.index, series.values, label="実績(日次)")
     ax.axhline(result["avg_daily"], color="orange", linestyle="--", label="直近平均ペース")
@@ -325,6 +313,14 @@ def save_chart(result, output_dir):
     ax.spines[["top", "right"]].set_visible(False)
     fig.autofmt_xdate()
     fig.tight_layout()
+    return fig
+
+
+def save_chart(result, output_dir):
+    fig = build_chart(result)
+    if fig is None:
+        return None
+    output_dir.mkdir(parents=True, exist_ok=True)
     safe_name = "".join(c if c.isalnum() else "_" for c in result["product"])
     path = output_dir / f"{safe_name}.png"
     fig.savefig(path, dpi=150)
