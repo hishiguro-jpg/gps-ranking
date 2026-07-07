@@ -7,14 +7,18 @@
 
 ```
 inventory_tool/
-├── order_calculator.py   ← メインスクリプト（これを実行する）
-├── templates/            ← 入力CSVのフォーマット見本
+├── order_calculator.py       ← メインスクリプト（発注量・損益分岐点等を算出）
+├── raw_data_import.py        ← 受発注管理システムの生データをsales_history.csv形式に変換
+├── estimate_selling_price.py ← 寄附金額とコーディネート報酬率から売価を推定
+├── templates/                ← 入力CSVのフォーマット見本
 │   ├── sales_history_template.csv
 │   └── cost_master_template.csv
-└── output/               ← グラフの出力先（自動生成、Git管理外）
+└── output/                   ← グラフの出力先（自動生成、Git管理外）
 ```
 
 ## 使い方
+
+### 1. 販売実績データがすでにCSVで整っている場合
 
 ```bash
 pip install -r requirements.txt
@@ -24,6 +28,38 @@ python inventory_tool/order_calculator.py \
   --costs  path/to/原価売価マスター.csv \
   --output inventory_tool/output/report.md
 ```
+
+### 2. 受発注管理システムの生データ（1行=1件の受発注明細）しかない場合
+
+商品名の表記ゆれ（【寄付額変更前】等のラベル、①②③、ポータル名の付記など）を
+吸収して日次集計するインポーターを用意している。
+
+```bash
+# 出荷日を基準に日次集計（在庫消費の実態に近い）
+python inventory_tool/raw_data_import.py \
+  --input path/to/生データ.csv --date-column shukka \
+  --output inventory_tool/sales_history_shukkabi.csv
+
+# 寄附日を基準に日次集計（本来の需要タイミングに近い。両方出して比較すると良い）
+python inventory_tool/raw_data_import.py \
+  --input path/to/生データ.csv --date-column kifu \
+  --output inventory_tool/sales_history_kifubi.csv
+```
+
+対応済みの商品グループは `raw_data_import.py` 内の `classify_product()` に定義されている
+（現状: シリカちゃん天然水の40本・24本）。別商品を対象に追加する場合はここにルールを追加する。
+
+ふるさと納税の寄附金額に対する一定率をコーディネート報酬（売価）とみなして概算したい場合は
+`estimate_selling_price.py` を使う。3ヶ月/6ヶ月/12ヶ月の定期便は、同一の寄附番号に対して
+出荷のたびに明細行ができる一方、寄附金額は毎回同額が記録されるため、寄附番号ごとの出荷件数で
+按分してから報酬率を掛けて1個あたりの金額を推定する。
+
+```bash
+python inventory_tool/estimate_selling_price.py \
+  --input path/to/生データ.csv --coordination-rate 0.13
+```
+
+`--coordination-rate` は比率が変わった場合に指定し直す（既定値0.13 = 13%）。
 
 実行すると、標準出力とMarkdownレポートに以下が出力されます。
 
@@ -58,6 +94,8 @@ python inventory_tool/order_calculator.py \
 | on_order_qty | 発注済み・未入荷数量（無ければ0） | 0 |
 
 ※ 事業者共通の固定費がある場合は、商品ごとに按分した金額を`fixed_cost`に入力してください。
+　（例：保管費用が`現在庫数×単価`で決まる場合や、搬入トラック1台あたりの固定費用がある場合は、
+　それらを合算した金額を入力する）
 
 サンプルは `templates/` フォルダを参照してください。実データのCSVは`.gitignore`で除外されるため、
 このフォルダに置いても誤ってGitへコミットされることはありません。

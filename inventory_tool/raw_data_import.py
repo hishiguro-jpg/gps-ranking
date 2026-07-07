@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""BOSS-OMSの受発注生データを order_calculator.py 用の sales_history.csv に変換する
+"""受発注生データを order_calculator.py 用の sales_history.csv に変換する
 
-生データ(BOSSからエクスポートしたCSV)は1行=1件(1個)の受発注記録という前提で、
-商品名の表記ゆれ(【寄付額変更前】等のラベルや①②③、ポータル名の付記)を吸収し、
-対象商品グループごとに指定した日付列で日次集計する。
+生データ(受発注管理システムからエクスポートしたCSV)は1行=1件(1個)の
+受発注記録という前提で、商品名の表記ゆれ(【寄付額変更前】等のラベルや
+①②③、ポータル名の付記)を吸収し、対象商品グループごとに指定した
+日付列で日次集計する。
 
 対応済みの商品グループ:
     シリカちゃん天然水(40本) / シリカちゃん天然水(24本)
     ※ 別商品を対象に追加したい場合は classify_product() にルールを追加する
 
 使い方:
-    python boss_import.py --input raw_boss_export.csv --date-column kifu \
+    python raw_data_import.py --input raw_export.csv --date-column kifu \
         --output sales_history_kifubi.csv
 
-    python boss_import.py --input raw_boss_export.csv --date-column shukka \
+    python raw_data_import.py --input raw_export.csv --date-column shukka \
         --output sales_history_shukkabi.csv
 """
 
@@ -53,7 +54,7 @@ def read_csv_any_encoding(path):
 
 def main():
     parser = argparse.ArgumentParser(description="BOSS生データをsales_history.csv形式に変換する")
-    parser.add_argument("--input", required=True, help="BOSSからエクスポートした生データCSV")
+    parser.add_argument("--input", required=True, help="受発注管理システムからエクスポートした生データCSV")
     parser.add_argument(
         "--date-column", choices=["kifu", "shukka"], required=True,
         help="集計基準の日付: kifu=寄附日(需要の発生タイミング) / shukka=出荷日(実際の在庫消費タイミング)",
