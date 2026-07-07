@@ -124,6 +124,18 @@ def analyze_product(product, sales_df, cost_row, window_days, service_level, tar
     avg_daily = float(series_window.mean()) if len(series_window) else 0.0
     std_daily = float(series_window.std(ddof=0)) if len(series_window) else 0.0
     avg_daily_overall = float(series_all.mean()) if len(series_all) else 0.0
+    trend_ratio = (avg_daily / avg_daily_overall) if avg_daily_overall > 0 else None
+
+    if cost_row is None:
+        return {
+            "product": product,
+            "series_all": series_all,
+            "avg_daily": avg_daily,
+            "std_daily": std_daily,
+            "avg_daily_overall": avg_daily_overall,
+            "trend_ratio": trend_ratio,
+            "has_cost_data": False,
+        }
 
     lead_time_days = float(cost_row["lead_time_days"])
     current_stock = float(cost_row["current_stock"])
@@ -158,8 +170,6 @@ def analyze_product(product, sales_df, cost_row, window_days, service_level, tar
         days_to_breakeven = None
         breakeven_date = None
 
-    trend_ratio = (avg_daily / avg_daily_overall) if avg_daily_overall > 0 else None
-
     return {
         "product": product,
         "series_all": series_all,
@@ -167,6 +177,7 @@ def analyze_product(product, sales_df, cost_row, window_days, service_level, tar
         "std_daily": std_daily,
         "avg_daily_overall": avg_daily_overall,
         "trend_ratio": trend_ratio,
+        "has_cost_data": True,
         "safety_stock": safety_stock,
         "reorder_point": reorder_point,
         "recommended_order_qty": recommended_order_qty,
@@ -224,6 +235,13 @@ def render_report(results, service_level, target_days, window_days):
                 trend_desc = "横ばい"
             lines.append(f"- 全期間平均との比較: 直近ペースは全期間平均の{r['trend_ratio']*100:.0f}%（{trend_desc}）")
         lines.append("")
+
+        if not r["has_cost_data"]:
+            lines.append("### 発注計画・損益分岐点")
+            lines.append("- 原価・売価・現在庫・リードタイムが未入力のため未算出（コスト情報を入力すると算出されます）")
+            lines.append("")
+            continue
+
         lines.append("### 発注計画")
         lines.append(f"- リードタイム: {r['lead_time_days']:.0f}日")
         lines.append(f"- 安全在庫: {r['safety_stock']:.1f} 個")
@@ -279,7 +297,10 @@ def save_chart(result, output_dir):
 def main():
     parser = argparse.ArgumentParser(description="過去実績から発注量・損益分岐点・在庫消化見込みを算出する")
     parser.add_argument("--sales", required=True, help="販売実績CSV (date, product, quantity)")
-    parser.add_argument("--costs", required=True, help="原価・売価・在庫等マスターCSV")
+    parser.add_argument(
+        "--costs", default=None,
+        help="原価・売価・在庫等マスターCSV。省略時は需要傾向(消化ペース)のみ算出する",
+    )
     parser.add_argument("--service-level", type=float, default=0.95, help="欠品許容度(サービス率) 例: 0.95")
     parser.add_argument("--window-days", type=int, default=60, help="直近何日間を消化ペースの算出に使うか")
     parser.add_argument("--target-days", type=int, default=30, help="リードタイムに加えて何日分の在庫を確保するか")
@@ -290,11 +311,16 @@ def main():
     args = parser.parse_args()
 
     sales_df = load_sales_history(args.sales)
-    cost_df = load_cost_master(args.costs)
+    cost_df = load_cost_master(args.costs) if args.costs else None
     today = datetime.now()
 
+    if cost_df is not None:
+        products = list(cost_df.iterrows())
+    else:
+        products = [(p, None) for p in sorted(sales_df["product"].unique())]
+
     results = []
-    for product, cost_row in cost_df.iterrows():
+    for product, cost_row in products:
         result = analyze_product(
             product=product,
             sales_df=sales_df,

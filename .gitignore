@@ -16,9 +16,10 @@ __pycache__/
 !sample_data.csv
 !inventory_tool/templates/*.csv
 
-# 在庫発注ツールの出力（実データ由来のグラフを含むため管理しない）
+# 在庫発注ツールの出力（実データ由来のグラフ・レポートを含むため管理しない）
 inventory_tool/output/*
 !inventory_tool/output/.gitkeep
+inventory_tool/report_*.md
 
 # macOS
 .DS_Store
