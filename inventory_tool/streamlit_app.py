@@ -192,4 +192,17 @@ for r in results:
         else:
             st.warning("粗利がゼロ以下のため損益分岐点を算出できません（原価・売価をご確認ください）")
 
+        st.markdown("**製造費回収（資金繰りの目安）**")
+        st.write(
+            f"- 対象数量(現在庫+推奨発注量): {r['units_for_cost_recovery']:.0f}個 / "
+            f"製造費総額: {r['manufacturing_cost_outlay']:.0f}円"
+        )
+        st.write(
+            f"- 回収見込み: {fmt_days(r['days_to_recover_cost'])}（{fmt_date(r['cost_recovery_date'])}頃）"
+        )
+        st.caption(
+            "原価は売れるたびに全額戻ってくるため、この日を過ぎた分の売上はすべて実質利益という考え方です。"
+            "固定費(トラック代・保管費等)の回収とは別の指標です。"
+        )
+
     st.divider()

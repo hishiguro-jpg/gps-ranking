@@ -186,6 +186,19 @@ def analyze_product(
         days_to_breakeven = None
         breakeven_date = None
 
+    # 製造費回収(資金繰り)の目安: 原価は売れるたびに全額戻ってくるため、
+    # 現在庫+推奨発注量ぶんの原価総額を、売価ベースの入金ペースで割って回収日を見積もる。
+    # 固定費ベースの損益分岐点(margin側)とは別の指標。
+    units_for_cost_recovery = current_stock + recommended_order_qty
+    manufacturing_cost_outlay = unit_cost * units_for_cost_recovery
+    revenue_per_day = selling_price * avg_daily
+    days_to_recover_cost = (
+        manufacturing_cost_outlay / revenue_per_day if revenue_per_day > 0 else float("inf")
+    )
+    cost_recovery_date = (
+        today + timedelta(days=days_to_recover_cost) if math.isfinite(days_to_recover_cost) else None
+    )
+
     return {
         "product": product,
         "series_all": series_all,
@@ -214,6 +227,10 @@ def analyze_product(
         "breakeven_units": breakeven_units,
         "days_to_breakeven": days_to_breakeven,
         "breakeven_date": breakeven_date,
+        "units_for_cost_recovery": units_for_cost_recovery,
+        "manufacturing_cost_outlay": manufacturing_cost_outlay,
+        "days_to_recover_cost": days_to_recover_cost,
+        "cost_recovery_date": cost_recovery_date,
     }
 
 
@@ -295,6 +312,18 @@ def render_report(results, service_level, target_days, window_days):
             )
         else:
             lines.append("- 粗利がゼロ以下のため損益分岐点を算出できません（原価・売価をご確認ください）")
+        lines.append("")
+
+        lines.append("### 製造費回収（資金繰りの目安）")
+        lines.append(
+            f"- 対象数量(現在庫+推奨発注量): {r['units_for_cost_recovery']:.0f}個 / "
+            f"製造費総額: {r['manufacturing_cost_outlay']:.0f}円"
+        )
+        lines.append(
+            f"- 回収見込み: {fmt_days(r['days_to_recover_cost'])}（{fmt_date(r['cost_recovery_date'])}頃）"
+        )
+        lines.append("  ※ 原価は売れるたびに全額戻ってくるため、この日を過ぎた分の売上はすべて実質利益という考え方です")
+        lines.append("  ※ 固定費(トラック代・保管費等)の回収とは別の指標です（上記の損益分岐点を参照）")
         lines.append("")
     return "\n".join(lines)
 
